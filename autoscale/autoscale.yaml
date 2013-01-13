@@ -1,0 +1,160 @@
+# AWS region to do this in
+region: 'us-west-1'
+
+# AutoScale groups
+#
+# Properties here should be fairly self-explanitory. They define the properties
+# of the AutoScaling group as well as the LaunchConfig.
+#
+# Not all properties are supported, but it's pretty easy to add support for
+# new other if you need it in config_autoscale.py. Just send a pull request and
+# I'll include it upstream.
+#
+# You can include as many groups as you want and every time you run
+# config_autoscale.py the group & launch configs for all of them will be updated
+# in AWS.
+#
+# IMPORTANT: AutoScaling groups removed from this config file won't be removed
+#            from AWS. You've gotta manage removal manually.
+#
+# If you're using AutoScale alarms to dynamically change capacity, every time
+# you run config_autoscale.py, capacity will be reset to whatever is in this
+# config file (meaning it could trigger a scale up or scale down along with
+# changing properties).
+#
+# See:
+#   - http://docs.aws.amazon.com/AutoScaling/latest/APIReference/API_CreateAutoScalingGroup.html
+#   - http://docs.aws.amazon.com/AutoScaling/latest/APIReference/API_CreateLaunchConfiguration.html
+groups:
+  backend:
+    # Minimum, maximum, and current number of instances of this configuration
+    # to maintain
+    min_size: 2
+    max_size: 10
+    capacity: 3
+
+    ami: 'ami-b0c7e6f5' # base Ubuntu AMI
+    zones: ['us-west-1a', 'us-west-1c']
+    ssh_key: 'us-west-01'
+    security_group: 'Backend'
+    instance_type: 'm1.large'
+
+    # Tags for the new instances (optional)
+    tags:
+      Name: 'Backend'
+
+    # AutoScaling alarms (optional)
+    #
+    # If defined, these describe the criteria used to scale up and down. This
+    # section defines the alarms (i.e. the criteria) and the "policies" section
+    # below describes the actions to be taken on those alarms.
+    #
+    # The alarms are taken over the average metric value for all instances in
+    # their AutoScaling group.
+    #
+    # IMPORTANT: Removing old alarms is not supported. You can change existing
+    #            alarms, but if you remove one, you need to remove it from
+    #            CloudWatch manually!
+    #
+    # See: http://docs.amazonwebservices.com/AmazonCloudWatch/latest/APIReference/API_PutMetricAlarm.html
+    alarms:
+      cpu_high:
+        period: 600
+        evaluation_periods: 3
+        threshold: 95
+        policy: 'up_25_percent'
+        comparison: '>'
+        namespace: 'AWS/EC2'
+        metric: 'CPUUtilization'
+      cpu_low:
+        period: 600
+        evaluation_periods: 3
+        threshold: 80
+        policy: 'down_25_percent'
+        comparison: '<'
+        namespace: 'AWS/EC2'
+        metric: 'CPUUtilization'
+
+  stage:
+    min_size: 1
+    max_size: 4
+    capacity: 4
+    ami: 'ami-1ac6e75f'
+    zones: ['us-west-1a', 'us-west-1c']
+    ssh_key: 'us-west-01'
+    security_group: 'Frontend'
+    instance_type: 't1.micro'
+    tags:
+      Name: 'Frontend-Stage'
+
+  frontend:
+    min_size: 6
+    max_size: 25
+    capacity: 6
+    ami: 'ami-b0c7e6f5'
+    zones: ['us-west-1a', 'us-west-1c']
+    ssh_key: 'us-west-01'
+    security_group: 'Frontend'
+    instance_type: 'c1.medium'
+    tags:
+      Name: 'Frontend'
+    alarms:
+      cpu_high:
+        period: 600
+        threshold: 70
+        evaluation_periods: 2
+        policy: 'up_25_percent'
+        comparison: '>'
+        namespace: 'AWS/EC2'
+        metric: 'CPUUtilization'
+      cpu_low:
+        period: 600
+        threshold: 40
+        evaluation_periods: 2
+        policy: 'down_25_percent'
+        comparison: '<'
+        namespace: 'AWS/EC2'
+        metric: 'CPUUtilization'
+
+# SNS topic ARN to publish notifications (optional)
+#
+# This can be used to trigger e-mails on AutoScaling events
+#
+# To create a notification topic for this, go to SNS in the management console,
+# create a new topic, then create an e-mail subscription with your e-mail
+# address and you'll get an e-mail on every config change & instance
+# launch/terminate.
+notification_topic: 'xxxxxx'
+
+# AutoScaling policies, used above by alarms
+#
+# These are optional. If you're not using the alarms, you can remove this
+# section.
+#
+# See: http://docs.aws.amazon.com/AutoScaling/latest/APIReference/API_PutScalingPolicy.html
+policies:
+  up_25_percent:
+    type: 'PercentChangeInCapacity'
+    cooldown: 900
+    adjustment: 25
+  down_25_percent:
+    type: 'PercentChangeInCapacity'
+    cooldown: 900
+    adjustment: -25
+
+# User data to start the instance with
+#
+# If it's a string, the string is used; if it's a list, each list item is joined
+# with a newline (it's tough to express YAML as a string inside YAML since
+# spacing gets messed up)
+#
+# We use Ubuntu's cloud-init stuff and roll an instance_init.py script on all of
+# our AMIs to bootstrap them, which is what this sample user_data runs. Change
+# this to support whatever bootstrapping you need to do.
+user_data:
+  - "#cloud-config"
+  - "runcmd:"
+  - " - >"
+  - "   /usr/bin/instance_init.py > /var/log/init.log 2>&1"
+  - "output:"
+  - " all: '| tee -a /var/log/cloud-init-output.log'"
